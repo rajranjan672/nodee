@@ -1,38 +1,45 @@
-const mongoose = require("mongoose")
+const mongoose = require('mongoose');
+const {Schema} = mongoose;
 const jwt = require("jsonwebtoken")
-const JWT_Secret ="sdfergrsvbhwqafv"
+const JWT_SECRET='ultrockwillrock#'
 
-
-const UserSchema = new mongoose.Schema({
-    username: {
-        type: String,
+const UserSchema = new Schema({
+    name:{
+        type:String,
     },
-
-    email: {
-        type: String,
+    username:{
+        type:String,
+    },
+    email:{
+        type:String,
+        unique:true
 
     },
-
-    password: {
-        type: String,
+    password:{
+        type:String,
+        
+        
     },
-
+    repeatpassword:{
+        type:String,
+        
+    },
     tokens: [
         {
-            token: {
-                type: String
+            token:{
+                type:String,
             }
         }
     ]
 })
 
 UserSchema.methods.generateToken = async function() {
-    let token = jwt.sign({_id: this._id}, JWT_Secret)
+    let token = jwt.sign({_id: this._id}, JWT_SECRET)
     this.tokens = this.tokens.concat({token: token})
     await this.save()
     return token;
 }
 
-const UserCollection = mongoose.model('User', UserSchema)
-
-module.exports = UserCollection
+const User=mongoose.model('user',UserSchema);
+// same email will not enter  again
+module.exports=User
