@@ -1,20 +1,15 @@
-const express=require('express');
-const User = require('../model/User');
+const express = require("express")
+const bcrypt = require("bcryptjs")
 const { body, validationResult } = require('express-validator');
-const router=express.Router();
-const bcrypt = require('bcryptjs');
-var jwt = require('jsonwebtoken');
 const JWT_SECRET='ultrockwillrock#'
+const router = express.Router()
+const UserModel = require("../model/User")
+const jwt = require("jsonwebtoken")
+const CarModel = require("../model/Cars");
 
-
-// router.get('/', (req, res) => {
-// const user=User(req.body)
-// user.save()
-// res.send(req.body) 
-// });
-
-router.post('/createuser',[
-    body('username').notEmpty().isAlphanumeric().isLength(3,20),
+//register
+router.post('/register',[
+    body('name').notEmpty().isAlphanumeric().isLength(3,20),
     body('email').isEmail(),
     body('password').isLength({min:8}),
 
@@ -28,23 +23,19 @@ router.post('/createuser',[
 
         
     }
-    // check user exist with same email or not
     try
     {
-    let user= await User.findOne({email: req.body.email})
+    let user= await UserModel.findOne({email: req.body.email})
         if(user){
             return res.status(400).json({ success, error:" user already exist with email id"})   
         }
-        // this  is for add salt in pass do npm i bcrypts js and import then write this
         const salt = await bcrypt.genSalt(10)   
         secPassword= await bcrypt.hash (req.body.password, salt   ) ;  
-// create user
-    user= await User.create({
+
+    user= await UserModel.create({
         name: req.body.name,
-        username: req.body.username,
         email: req.body.email,
         password: secPassword,
-        repeatpassword: secPassword,
 
 
     });
@@ -55,7 +46,7 @@ router.post('/createuser',[
     }
     const authtoken = await jwt.sign(dta, JWT_SECRET);
     success = true
-      res.json({success , authtoken}) 
+      res.json({success , authtoken, secPassword}) 
  
  }  catch (error) {
     console.error(error.message);
@@ -65,41 +56,8 @@ router.post('/createuser',[
 
 })
 
-const verifyToken = async(req, res, next) => {
-    try {
-  const token = req.cookies.access_token;
-  
-    // if (!token) {
-    //   return res.status(403).send("A token is required for authentication");
-    // }
-  
-      const varifyToken = jwt.verify(token, JWT_SECRET);
 
-      const rootUser = await User.findOne({_id: varifyToken._id, "tokens.token": token})
-      console.log(rootUser)
-       if(!rootUser) {
-         throw new Error("User not found")
-       }
-
-      req.token = token;
-      req.rootUser = rootUser
-      req.userID = rootUser._id;
-
-      next()
-      // req.user = decoded;
-    } catch (err) {
-      return res.status(401).send("Invalid Token");
-    }
-    // return next();
-  };
-
-  router.get('/get', verifyToken, async(req, res) => {
-    // const ress = await User.find()
-     res.send(req.rootUser)
-})
-
-
-//  user login
+//login
 router.post('/login',[
     body('email').isEmail(),
     body('password', 'password  can not be blank').exists(),
@@ -112,11 +70,8 @@ router.post('/login',[
     }
   const {email , password}=req.body
   try {
-    let user = await User.findOne({email});
-    // if(!user){
-    //     return res.status(400).json({error: "enter valid details"})
-    // }
-// password compare    
+    let user = await UserModel.findOne({email});
+    
     const passwordcompare = await bcrypt.compare(password, user.password)
     
     if(!passwordcompare){
@@ -124,28 +79,19 @@ router.post('/login',[
         return res.status(400).json({error: "enter valid details"})
 
     }
-    // const dta= {
-    //     user:{
-    //         id:user.id
-    //     }
-    // }
+  
 
-    const token = await user.generateToken()
+    const token = jwt.sign({id: user._id}, JWT_SECRET, {
+      expiresIn: "2h"
+    })
     console.log(token)
-    // const authtoken = await jwt.sign({_id:this._id}, JWT_SECRET,
-    //   {
-    //     expiresIn: "2h",
-    //   });
-    //   this.tokens = 
-    // success=true
-    // res.json({success, authtoken}) 
+    
    return res
     .cookie("access_token", token, {
       httpOnly: true,
-      // secure: process.env.NODE_ENV === "production",
     })
     .status(200)
-    .json({ message: "Logged in successfully 😊 👌" });
+    .json({ message: "Logged in successfully 😊 👌", name:user.name, email: user.email, token: token });
 
   } catch (error) {
     console.error(error.message);
@@ -154,6 +100,39 @@ router.post('/login',[
   }
 }
 )
+
+
+const verifyToken = async(req, res, next) => {
+  const token = req.cookies.access_token;
+
+    jwt.verify((token), JWT_SECRET, (err, user) => {
+      if(err) {
+        return res.status(400).json({message: "Invalid token"})
+      }
+      console.log(user.id)
+      req.id = user.id
+    })
+    next()
+};
+
+const getUser = async(req,res,next) => {
+  const userId = req.id;
+  
+  let user;
+  try {
+    user = await UserModel.findById(userId)
+  } catch (err) {
+    return new Error(err)
+  }
+  // if(!user) {
+  //   return res.status(404).json({message: "Invalid user"})
+  // }
+  return res.status(200).json({user})
+}
+    
+
+router.get('/get', verifyToken, getUser)
+
 
 router.get('/logout', verifyToken, function(req, res){
   cookie = req.cookies;
@@ -166,21 +145,26 @@ router.get('/logout', verifyToken, function(req, res){
   res.redirect('/');
 });
 
-
-router.put("/resetpassword/:id", verifyToken, async(req, res, next) => {
-  const salt = await bcrypt.genSalt(10)   
-  secPassword= await bcrypt.hash (req.body.password, salt   ) ;
-  
-  var pwd = {
-    password: secPassword
-  }
-
-  const ress = await User.findByIdAndUpdate(req.params.id, {
-    $set: pwd}, {new: true}
-  
-  )
-  res.send(ress) 
-
+router.post('/createcar', async(req,res) => {
+    const newcar = new CarModel({
+      make: req.body.make,
+      model: req.body.model,
+      price: req.body.price,
+      
+    })
+    ress = await newcar.save()
+    return res.status(200).json(ress)
 })
 
-module.exports=router;
+router.get("/allcars", (async(req,res) => {
+  const resp = await CarModel.find()
+   
+  return res.status(200).send(resp)
+}))
+
+router.get("/cars", ((req,res) => {
+  let founduser = UserModel.find({name: req.params.name}).populate("cars")
+  return res.json(founduser)
+}))
+
+module.exports = router
